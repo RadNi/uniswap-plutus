@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds                  #-}
+    {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingStrategies         #-}
@@ -152,7 +152,8 @@ data SwapParams = SwapParams
 
 data SwapParams2 = SwapParams2
     { 
-      path      :: [(Coin A, Amount A)]
+        amount    :: Amount A
+      , path      :: [Coin A]
     -- spCoinA   :: Coin A         -- ^ One 'Coin' of the liquidity pair.
     -- , spCoinB   :: Coin B         -- ^ The other 'Coin'.
     -- , spAmountA :: Amount A       -- ^ The amount the first 'Coin' that should be swapped.
@@ -386,149 +387,60 @@ swap2 :: forall w s. Uniswap -> SwapParams2 -> Contract w s Text ()
 swap2 us SwapParams2{..} = do
     -- (oref1, o1, lps) <- findUniswapFactory us
     (tx, lookups) <- case path of
-        [(c1, amount), (c2, _), (c3, _)]     -> do
-                                   logInfo @String $ printf "oomad???" ++ show path ++ show inst
-                                   lookups <- toLookup 
-                                   trx     <- toTrx    
-                                   -- throwError "problem passing args"
-                                   return (trx, lookups)
-                                where 
-                                    -- f :: Monad a => Integer -> [a] -> [[a]]
-                                    f n m xs = zipWith const (Data.List.take n <$> tails xs) (drop m xs)
+        [c1, c2, c3]                         -> do
+                                                    logInfo @String $ printf "oomad???" ++ show path ++ show inst
+                                                    lookups <- toLookup c1 c2
+                                                    trx     <- toTrx c1 c2 amount  
+                                                    -- throwError "problem passing args"
+                                                    return (trx, lookups)
+                                                    where 
+                                                    -- f :: Monad a => Integer -> [a] -> [[a]]
+                                                        f n m xs = zipWith const (Data.List.take n <$> tails xs) (drop m xs)
 
 
-                                    inst     = uniswapInstance us
-                                    -- path2    = f 2 1 (p:ps)
-                                    -- path22   = f 2 1 path2
-                                    toLookup                       = do     (_, (lp1oref, lp1o, lp1, lp1a))         <- findUniswapFactoryAndPool us c1 $ Coin $ unCoin c2
-                                                                            (_, (lp2oref, lp2o, lp2, lp2a))         <- findUniswapFactoryAndPool us c2 $ Coin $ unCoin c3
-                                                                            pkh                                     <- pubKeyHash <$> ownPubKey
-                                                                            let lookup = Constraints.typedValidatorLookups inst                   <>
-                                                                                         Constraints.otherScript (Scripts.validatorScript inst)    <>
-                                                                                         Constraints.unspentOutputs (Map.singleton lp1oref lp1o)  <>
-                                                                                         Constraints.unspentOutputs (Map.singleton lp2oref lp2o)  <>
-                                                                                         Constraints.ownPubKeyHash pkh
-                                                                            return lookup
+                                                        inst     = uniswapInstance us
+                                                        -- path2    = f 2 1 (p:ps)
+                                                    -- path22   = f 2 1 path2
+                                                        toLookup c1 c2                 = do     (_, (lp1oref, lp1o, lp1, lp1a))         <- findUniswapFactoryAndPool us c1 $ Coin $ unCoin c2
+                                                                                                -- (_, (lp2oref, lp2o, lp2, lp2a))         <- findUniswapFactoryAndPool us c2 $ Coin $ unCoin c3
+                                                                                                pkh                                     <- pubKeyHash <$> ownPubKey
+                                                                                                let lookup = Constraints.typedValidatorLookups inst                   <>
+                                                                                                             Constraints.otherScript (Scripts.validatorScript inst)    <>
+                                                                                                             Constraints.unspentOutputs (Map.singleton lp1oref lp1o)  <>
+                                                                                                             -- Constraints.unspentOutputs (Map.singleton lp2oref lp2o)  <>
+                                                                                                             Constraints.ownPubKeyHash pkh
+                                                                                                return lookup
 
 
-                                    toTrx                          = do     (_, (lp1oref, lp1o, lp1, lp1a))         <- findUniswapFactoryAndPool us c1 $ Coin $ unCoin c2
-                                                                            (_, (lp2oref, lp2o, lp2, lp2a))         <- findUniswapFactoryAndPool us c2 $ Coin $ unCoin c3
-                                                                            let lp1outVal                     = txOutValue $ txOutTxOut lp1o
-                                                                                lp1oldA                       = amountOf lp1outVal c1
-                                                                                lp1oldB                       = amountOf lp1outVal $ Coin $ unCoin c2
-                                                                                lp2outVal                     = txOutValue $ txOutTxOut lp2o
-                                                                                lp2oldB                       = amountOf lp2outVal c2
-                                                                                lp2oldC                       = amountOf lp2outVal $ Coin $ unCoin c3
-                                                                                lp1outB                       = Amount $ findSwapA lp1oldA lp1oldB amount
-                                                                                lp2outC                       = Amount $ findSwapA lp2oldB lp2oldC lp1outB
-                                                                                (lp1newA, lp1newB)            = (lp1oldA + amount, lp1oldB - (Amount $ unAmount lp1outB))
-                                                                                (lp2newB, lp2newC)            = (lp2oldB + lp1outB, lp2oldC - lp2outC)
- 
-                                                                                val1                          = valueOf c1 lp1newA <> valueOf c2 (Amount $ unAmount lp1newB) <> unitValue (poolStateCoin us)
-                                                                                val2                          = valueOf c2 lp2newB <> valueOf c3 (Amount $ unAmount lp2newC) <> unitValue (poolStateCoin us)
-                                                                                trx = Constraints.mustSpendScriptOutput lp1oref (Redeemer $ PlutusTx.toBuiltinData Swap)                      <>
-                                                                                      Constraints.mustSpendScriptOutput lp2oref (Redeemer $ PlutusTx.toBuiltinData Swap)                      <>
-                                                                                      Constraints.mustPayToTheScript (Pool lp1 lp1a) val1                                                     <>          
-                                                                                      Constraints.mustPayToTheScript (Pool lp2 lp2a) val2 
-                                                                            return trx
-                                                                                                                                                       -- [val1, val2] = toVal [[c1, c2], [c22, c3]]
-        -- [(cA, amntA), (cB, amntB), (cC, amntC), (cD, amntD)] ->     do
-        --                                                     unless (amntA > 0 && amntB == 0 && amntC == 0) $ throwError "only first amount must be positive"
-        --                                                     -- (_, (oref, o, lp, liquidity)) <- findUniswapFactoryAndPool us spCoinA spCoinB
-        --                                                     (lp1oref, lp1o, lp1a)         <- findUniswapPool us LiquidityPool{lpCoinA=cA, lpCoinB= Coin $ unCoin cB}
-        --                                                     (lp2oref, lp2o, lp2a)         <- findUniswapPool us LiquidityPool{lpCoinA=cB, lpCoinB= Coin $ unCoin cC}
-        --                                                     pkh                           <- pubKeyHash <$> ownPubKey
-
-        --                                                     let inst               = uniswapInstance us
-
-        --                                                         lp1outVal          = txOutValue $ txOutTxOut lp1o
-        --                                                         lp1oldA            = amountOf lp1outVal cA
-        --                                                         lp1oldB            = amountOf lp1outVal $ Coin $ unCoin cB
-        --                                                         lp2outVal          = txOutValue $ txOutTxOut lp2o
-        --                                                         lp2oldB            = amountOf lp2outVal cB
-        --                                                         lp2oldC            = amountOf lp2outVal $ Coin $ unCoin cC
-        --                                                         lp1outB            = Amount $ findSwapA lp1oldA lp1oldB amntA
-        --                                                         lp2outC            = Amount $ findSwapA lp2oldB lp2oldC lp1outB
-        --                                                         (lp1newA, lp1newB) = (lp1oldA + amntA, lp1oldB - (Amount $ unAmount lp1outB))
-        --                                                         (lp2newB, lp2newC) = (lp2oldB + lp1outB, lp2oldC - lp2outC)
- 
-        --                                                         val1               = valueOf cA lp1newA <> valueOf cB (Amount $ unAmount lp1newB) <> unitValue (poolStateCoin us)
-        --                                                         val2               = valueOf cB lp2newB <> valueOf cC (Amount $ unAmount lp2newC) <> unitValue (poolStateCoin us)
- 
-        --                                                         lookups            = Constraints.typedValidatorLookups inst                    <>
-        --                                                                              Constraints.otherScript (Scripts.validatorScript inst)    <>
-        --                                                                              Constraints.unspentOutputs (Map.singleton lp1oref lp1o)   <>
-        --                                                                              Constraints.unspentOutputs (Map.singleton lp2oref lp2o)   <>
-        --                                                                              Constraints.ownPubKeyHash pkh
- 
-        --                                                         tx                 = Constraints.mustSpendScriptOutput lp1oref (Redeemer $ PlutusTx.toBuiltinData Swap) <>
-        --                                                                              Constraints.mustSpendScriptOutput lp2oref (Redeemer $ PlutusTx.toBuiltinData Swap) <>
-        --                                                                              Constraints.mustPayToTheScript (Pool (LiquidityPool{lpCoinA=cA, lpCoinB= Coin $ unCoin cB}) lp1a) val1  <>           
-        --                                                                              Constraints.mustPayToTheScript (Pool (LiquidityPool{lpCoinA=cB, lpCoinB= Coin $ unCoin cC}) lp2a) val2             
-                                                                                    
-        --                                                     logInfo @String $ printf "lp1 oldA = %d, lp1 oldB = %d, lp1 old product = %d, lp1 newA = %d, lp1 newB = %d, lp1 new product = %d" lp1oldA lp1oldB (unAmount lp1oldA * unAmount lp1oldB) lp1newA lp1newB (unAmount lp1newA * unAmount lp1newB)
-
-        --                                                     logInfo @String $ printf "lp2 oldB = %d, lp2 oldC = %d, lp2 old product = %d, lp2 newB = %d, lp2 newC = %d, lp2 new product = %d" lp2oldB lp2oldC (unAmount lp2oldB * unAmount lp2oldC) lp2newB lp2newC (unAmount lp2newB * unAmount lp2newC)
-        --                                                     return (tx, lookups)
-                                                            -- logInfo $ "arguments properly passed: " ++ show path
-                                                            
-                                                            -- logInfo $ "swapped with: " ++ show (LiquidityPool{lpCoinA=cA, lpCoinB= Coin $ unCoin cB}) ++ show (LiquidityPool{lpCoinA=cB, lpCoinB= Coin $ unCoin cC})
-
-                                                               -- 
-    --     val     = valueOf spCoinA newA <> valueOf spCoinB newB <> unitValue (poolStateCoin us)
-
-    --     lookups = Constraints.typedValidatorLookups inst                 <>
-    --               Constraints.otherScript (Scripts.validatorScript inst) <>
-    --               Constraints.unspentOutputs (Map.singleton oref o)      <>
-    --               Constraints.ownPubKeyHash pkh
-
-    --     tx      = mustSpendScriptOutput oref (Redeemer $ PlutusTx.toBuiltinData Swap) <>
-    --               Constraints.mustPayToTheScript (Pool lp liquidity) val
-                         -- return [f, s, t]
-                                      -- unless (spAmountA > 0 && spAmountB == 0 || spAmountA == 0 && spAmountB > 0) $ throwError "exactly one amount must be positive"
-
-        _                                       ->     throwError "problem passing args"
+                                                        toTrx c1 c2 amnt               = do     (_, (lp1oref, lp1o, lp1, lp1a))         <- findUniswapFactoryAndPool us c1 $ Coin $ unCoin c2
+                                                                                                -- (_, (lp2oref, lp2o, lp2, lp2a))         <- findUniswapFactoryAndPool us c2 $ Coin $ unCoin c3
+                                                                                                let lp1outVal                     = txOutValue $ txOutTxOut lp1o
+                                                                                                    lp1oldA                       = amountOf lp1outVal c1
+                                                                                                    lp1oldB                       = amountOf lp1outVal $ Coin $ unCoin c2
+                                                                                                    -- lp2outVal                     = txOutValue $ txOutTxOut lp2o
+                                                                                                    -- lp2oldB                       = amountOf lp2outVal c2
+                                                                                                    -- lp2oldC                       = amountOf lp2outVal $ Coin $ unCoin c3
+                                                                                                    lp1outB                       = Amount $ findSwapA lp1oldA lp1oldB amnt
+                                                                                                    -- lp2outC                       = Amount $ findSwapA lp2oldB lp2oldC lp1outB
+                                                                                                    (lp1newA, lp1newB)            = (lp1oldA + amnt, lp1oldB - (Amount $ unAmount lp1outB))
+                                                                                                    -- (lp2newB, lp2newC)            = (lp2oldB + lp1outB, lp2oldC - lp2outC)
+                    
+                                                                                                    val1                          = valueOf c1 lp1newA <> valueOf c2 (Amount $ unAmount lp1newB) <> unitValue (poolStateCoin us)
+                                                                                                    -- val2                          = valueOf c2 lp2newB <> valueOf c3 (Amount $ unAmount lp2newC) <> unitValue (poolStateCoin us)
+                                                                                                    trx                           = Constraints.mustSpendScriptOutput lp1oref (Redeemer $ PlutusTx.toBuiltinData Swap)                      <>
+                                                                                                                                    -- Constraints.mustSpendScriptOutput lp2oref (Redeemer $ PlutusTx.toBuiltinData Swap)                      <>
+                                                                                                                                    Constraints.mustPayToTheScript (Pool lp1 lp1a) val1                                                               
+                                                                                                          -- Constraints.mustPayToTheScript (Pool lp2 lp2a) val2 
+                                                                                                return trx
+                                                                                                                                                           -- [val1, val2] = toVal [[c1, c2], [c22, c3]]
+       
+        _                                    ->     throwError "problem passing args"
                                                        -- return (Nothing, Nothing)
     logInfo $ show tx
     ledgerTx <- submitTxConstraintsWith lookups tx
     logInfo $ show ledgerTx
     void $ awaitTxConfirmed $ txId ledgerTx
     
-
-
-    -- [first, second, third]
-    -- (_, (oref, o, lp, liquidity)) <- findUniswapFactoryAndPool us spCoinA spCoinB
-    -- let outVal = txOutValue $ txOutTxOut o
-    -- let oldA = amountOf outVal spCoinA
-    --     oldB = amountOf outVal spCoinB
-    -- (newA, newB) <- if spAmountA > 0 then do
-    --     let outB = Amount $ findSwapA oldA oldB spAmountA
-    --     when (outB == 0) $ throwError "no payout"
-    --     return (oldA + spAmountA, oldB - outB)
-    --                                  else do
-    --     let outA = Amount $ findSwapB oldA oldB spAmountB
-    --     when (outA == 0) $ throwError "no payout"
-    --     return (oldA - outA, oldB + spAmountB)
-    -- pkh <- pubKeyHash <$> ownPubKey
-
-    -- logInfo @String $ printf "oldA = %d, oldB = %d, old product = %d, newA = %d, newB = %d, new product = %d" oldA oldB (unAmount oldA * unAmount oldB) newA newB (unAmount newA * unAmount newB)
-
-    -- let inst    = uniswapInstance us
-    --     val     = valueOf spCoinA newA <> valueOf spCoinB newB <> unitValue (poolStateCoin us)
-
-    --     lookups = Constraints.typedValidatorLookups inst                 <>
-    --               Constraints.otherScript (Scripts.validatorScript inst) <>
-    --               Constraints.unspentOutputs (Map.singleton oref o)      <>
-    --               Constraints.ownPubKeyHash pkh
-
-    --     tx      = mustSpendScriptOutput oref (Redeemer $ PlutusTx.toBuiltinData Swap) <>
-    --               Constraints.mustPayToTheScript (Pool lp liquidity) val
-
-    -- logInfo $ show tx
-    -- ledgerTx <- submitTxConstraintsWith lookups tx
-    -- logInfo $ show ledgerTx
-    -- void $ awaitTxConfirmed $ txId ledgerTx
-    -- logInfo $ "swapped with: " ++ show lp
 
 
 -- | Finds all liquidity pools and their liquidity belonging to the Uniswap instance.
