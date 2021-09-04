@@ -47,14 +47,14 @@ main = do
     go cid cs = do
         cmd <- readCommandIO
         case cmd of
-            Funds                     -> getFunds        cid
-            Pools                     -> getPools        cid
-            Create amtA tnA amtB tnB  -> createPool      cid $ toCreateParams cs amtA tnA amtB tnB
-            Add amtA tnA amtB tnB     -> addLiquidity    cid $ toAddParams cs amtA tnA amtB tnB
-            Remove amt tnA tnB        -> removeLiquidity cid $ toRemoveParams cs amt tnA tnB
-            Close tnA tnB             -> closePool       cid $ toCloseParams cs tnA tnB
-            Swap amtA tnA tnB         -> swap            cid $ toSwapParams cs amtA tnA tnB
-            Swap2 amt tns             -> swap2           cid $ toSwapParams2 cs amt tns 
+            Funds                     -> getFunds                            cid
+            Pools                     -> getPools                            cid
+            Create amtA tnA amtB tnB  -> createPool                          cid $ toCreateParams cs amtA tnA amtB tnB
+            Add amtA tnA amtB tnB     -> addLiquidity                        cid $ toAddParams cs amtA tnA amtB tnB
+            Remove amt tnA tnB        -> removeLiquidity                     cid $ toRemoveParams cs amt tnA tnB
+            Close tnA tnB             -> closePool                           cid $ toCloseParams cs tnA tnB
+            Swap amtA tnA tnB         -> swap                                cid $ toSwapParams cs amtA tnA tnB
+            Swap2 amt tns             -> swapExactTokensWithTokens           cid $ toSwapParams2 cs amt tns 
         go cid cs
 
 data Command =
