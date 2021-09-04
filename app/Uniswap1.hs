@@ -65,6 +65,8 @@ initContract = do
 wallets :: [Wallet]
 wallets = [Wallet i | i <- [1 .. 4]]
 
+emptyW = Wallet 5
+
 tokenNames :: [TokenName]
 tokenNames = ["A", "B", "C", "D"]
 

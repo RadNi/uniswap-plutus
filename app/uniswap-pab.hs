@@ -59,7 +59,7 @@ main = void $ Simulator.runSimulationWith handlers $ do
                     _                                       -> Nothing
     logString @(Builtin UniswapContracts) $ "Uniswap instance created: " ++ show us
 
-    forM_ wallets $ \w -> do
+    forM_ (emptyW:wallets) $ \w -> do
         cid <- Simulator.activateContract w $ UniswapUser us
         liftIO $ writeFile (cidFile w) $ show $ unContractInstanceId cid
         logString @(Builtin UniswapContracts) $ "Uniswap user contract started for " ++ show w

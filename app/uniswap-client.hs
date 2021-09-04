@@ -93,7 +93,7 @@ toSwapParams :: CurrencySymbol -> Integer -> Char -> Char -> US.SwapParams
 toSwapParams cs amtA tnA tnB = US.SwapParams (toCoin cs tnA) (toCoin cs tnB) (US.Amount amtA) (US.Amount 0)
 
 toSwapParams2 :: CurrencySymbol -> Integer -> [Char] -> US.SwapParams2
-toSwapParams2 cs amtA [tnA, tnB, tnC] = US.SwapParams2 (US.Amount amtA) [toCoin cs tnA, toCoin cs tnB, toCoin cs tnC]
+toSwapParams2 cs amtA ps = US.SwapParams2 (US.Amount amtA) $ map (toCoin cs) ps
 
 showCoinHeader :: IO ()
 showCoinHeader = printf "\n                                                 currency symbol                                                         token name          amount\n\n"

@@ -23,9 +23,6 @@ cabal.project.local~
 .ghc.environment.*
 dist-newstyle/
 symbol.json
-W1.cid
-W2.cid
-W3.cid
-W4.cid
+*.cid
 .DS_Store
 **/.DS_Store
