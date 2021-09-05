@@ -45,17 +45,32 @@ uniswapTrace = do
     us <- Emulator.observableState cidStart >>= \case
                 Monoid.Last (Just (Right v)) -> pure v
                 _                            -> throwError $ GenericError "initialisation failed"
-    cid1 <- Emulator.activateContractWallet (Wallet 2) (awaitPromise $ userEndpoints us)
-    cid2 <- Emulator.activateContractWallet (Wallet 3) (awaitPromise $ userEndpoints us)
+
+    cid2   <- Emulator.activateContractWallet (Wallet 2)  (awaitPromise $ userEndpoints us)
+    cid3   <- Emulator.activateContractWallet (Wallet 3)  (awaitPromise $ userEndpoints us)
+    cid4   <- Emulator.activateContractWallet (Wallet 4)  (awaitPromise $ userEndpoints us)
+    cidArb <- Emulator.activateContractWallet arbitrageur (awaitPromise $ userEndpoints us)
     _ <- Emulator.waitNSlots 5
 
-    let cp = OffChain.CreateParams ada (coins Map.! "A") 100000 500000
+    let cpAB = OffChain.CreateParams (coins Map.! "A") (coins Map.! "B") 10000 20000
+        cpBC = OffChain.CreateParams (coins Map.! "B") (coins Map.! "C") 20000 30000
+        cpCD = OffChain.CreateParams (coins Map.! "C") (coins Map.! "D") 30000 40000
+        cpDA = OffChain.CreateParams (coins Map.! "D") (coins Map.! "A") 40000 80000
 
-    Emulator.callEndpoint @"create" cid1 cp
+    Emulator.callEndpoint @"create" cid2 cpAB
+    _ <- Emulator.waitNSlots 5
+    Emulator.callEndpoint @"create" cid2 cpBC
+    _ <- Emulator.waitNSlots 5
+    Emulator.callEndpoint @"create" cid3 cpCD
+    _ <- Emulator.waitNSlots 5
+    Emulator.callEndpoint @"create" cid4 cpDA
     _ <- Emulator.waitNSlots 5
 
-    let ap = AddParams{apCoinA = ada, apCoinB = coins Map.! "A", apAmountA = 1000, apAmountB = 5000}
-    Emulator.callEndpoint @"add" cid2 ap
+    let swp2 = SwapParams2{amount = 10000, path = [coins Map.! "A", coins Map.! "B", coins Map.! "C", coins Map.! "D", coins Map.! "A"]}
+    Emulator.callEndpoint @"swapTokensForExactTokens" cidArb swp2
+
+    -- let ap = AddParams{apCoinA = ada, apCoinB = coins Map.! "A", apAmountA = 1000, apAmountB = 5000}
+    -- Emulator.callEndpoint @"add" cid2 ap
     _ <- Emulator.waitNSlots 5
     pure ()
 
@@ -81,6 +96,9 @@ setupTokens = do
 
 wallets :: [Wallet]
 wallets = [Wallet i | i <- [1 .. 4]]
+
+arbitrageur :: Wallet
+arbitrageur = Wallet 5 
 
 tokenNames :: [TokenName]
 tokenNames = ["A", "B", "C", "D"]

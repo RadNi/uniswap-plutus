@@ -26,7 +26,7 @@ module Uniswap.OffChain
     , UniswapUserSchema, UserContractState (..)
     , UniswapOwnerSchema
     , start, create, add, remove, close, swap, pools
-    , ownerEndpoint, userEndpoints
+    , ownerEndpoint, userEndpoints, swapExactTokensForTokens, swapTokensForExactTokens
     -- , assetSymbol
     -- , assetToken1
     -- , assetToken2
@@ -40,7 +40,7 @@ import qualified Data.Map                         as Map
 import           Data.Monoid                      (Last (..))
 import           Data.Proxy                       (Proxy (..))
 import           Data.Text                        (Text, pack)
-import           Data.List                        (tails, zipWith, take, drop, mapAccumL)
+import           Data.List                        (tails, zipWith, take, drop, mapAccumL, last)
 import           Data.Void                        (Void, absurd)
 import           Ledger                           hiding (singleton)
 
@@ -84,14 +84,15 @@ type UniswapOwnerSchema = Endpoint "start" ()
 -- | Schema for the endpoints for users of Uniswap.
 type UniswapUserSchema =
         Endpoint "create" CreateParams
-        .\/ Endpoint "swap"   SwapParams
-        .\/ Endpoint "swap2"  SwapParams2
-        .\/ Endpoint "close"  CloseParams
-        .\/ Endpoint "remove" RemoveParams
-        .\/ Endpoint "add"    AddParams
-        .\/ Endpoint "pools"  ()
-        .\/ Endpoint "funds"  ()
-        .\/ Endpoint "stop"   ()
+        .\/ Endpoint "swap"                      SwapParams
+        .\/ Endpoint "swapExactTokensForTokens"  SwapParams2
+        .\/ Endpoint "swapTokensForExactTokens"  SwapParams2
+        .\/ Endpoint "close"                     CloseParams
+        .\/ Endpoint "remove"                    RemoveParams
+        .\/ Endpoint "add"                       AddParams
+        .\/ Endpoint "pools"                     ()
+        .\/ Endpoint "funds"                     ()
+        .\/ Endpoint "stop"                      ()
 
 -- | Type of the Uniswap user contract state.
 data UserContractState =
@@ -377,11 +378,11 @@ swap us SwapParams{..} = do
     let oldA = amountOf outVal spCoinA
         oldB = amountOf outVal spCoinB
     (newA, newB) <- if spAmountA > 0 then do
-        let outB = Amount $ findSwapA oldA oldB spAmountA
+        let outB = Amount $ getAmountOutA oldA oldB spAmountA
         when (outB == 0) $ throwError "no payout"
         return (oldA + spAmountA, oldB - outB)
                                      else do
-        let outA = Amount $ findSwapB oldA oldB spAmountB
+        let outA = Amount $ getAmountOutB oldA oldB spAmountB
         when (outA == 0) $ throwError "no payout"
         return (oldA - outA, oldB + spAmountB)
     pkh <- pubKeyHash <$> ownPubKey
@@ -406,7 +407,67 @@ swap us SwapParams{..} = do
     logInfo $ "swapped with: " ++ show lp
 
 
-                                                        
+                                                    
+swapTokensForExactTokens :: forall w s. Uniswap -> SwapParams2 -> Contract w s Text ()
+swapTokensForExactTokens us SwapParams2{..} = do
+    (tx, lookups) <- case path of
+        p:ps                                 -> do
+                                                    logInfo @String $ printf "Swapping " ++ show path ++ show inst
+                                                    pkh                                     <- pubKeyHash <$> ownPubKey
+                                                    lookups <- allLookups path2rev $ Constraints.ownPubKeyHash pkh <> Constraints.typedValidatorLookups inst <> Constraints.otherScript (Scripts.validatorScript inst)
+
+                                                    out <- mapAccumLM (\aux a -> toTrx a aux) (Amount $ unAmount amount) path2rev
+                                                    logInfo @String $ printf "You may spend " ++ show (fst out) ++ show (last $ last path2rev)
+
+                                                    let trx = Haskell.mconcat $ snd out
+                                                    return (trx, lookups)
+                                                    where
+                                                        allLookups [] strt = return strt
+                                                        allLookups (p:ps) strt = do
+                                                            new <- toLookup us inst p
+                                                            rest <- allLookups ps strt
+                                                            return (new <> rest)
+
+                                                        mapAccumLM :: Monad m => (a -> b -> m(a, c)) -> a -> [b] -> m(a, [c])
+                                                        mapAccumLM _ a [] = return (a, [])
+                                                        mapAccumLM f a (x:xs) = do
+                                                          (a', c) <- f a x
+                                                          (a'', cs) <- mapAccumLM f a' xs
+                                                          return (a'', c:cs)
+
+                                                        f n m xs = zipWith const (Data.List.take n <$> tails xs) (drop m xs)
+
+
+                                                        inst          = uniswapInstance us
+                                                        path2rev      = reverse $ f 2 1 path
+
+                                                        toLookup us inst [c11, c22]= do (_, (oref, o, _, _))         <- findUniswapFactoryAndPool us c11 $ Coin $ unCoin c22
+                                                                                        return $ Constraints.unspentOutputs (Map.singleton oref o)
+
+                                                        toTrx [c1, c2] amnt           = do      (_, (oref, o, lp, a))         <- findUniswapFactoryAndPool us c1 $ Coin $ unCoin c2
+                                                                                                let outVal                     = txOutValue $ txOutTxOut o
+                                                                                                    oldA                       = amountOf outVal c1
+                                                                                                    oldB                       = amountOf outVal $ Coin $ unCoin c2
+                                                                                                    inA                        = Amount $ getAmountInB oldA oldB amnt
+                                                                                                    (newA, newB)               = (oldA + inA, oldB - (Amount $ unAmount amnt))
+                    
+                                                                                                    val                           = valueOf c1 newA <> valueOf c2 (Amount $ unAmount newB) <> unitValue (poolStateCoin us)
+                                                                                                    trx                           = Constraints.mustSpendScriptOutput oref (Redeemer $ PlutusTx.toBuiltinData Swap)                         <>
+                                                                                                                                    Constraints.mustPayToTheScript (Pool lp a) val                                                                
+                                                                                                logInfo @String $ printf "oldA = %d, oldB = %d, old product = %d, newA = %d, newB = %d, new product = %d" oldA oldB (unAmount oldA * unAmount oldB) newA newB (unAmount newA * unAmount newB)
+
+                                                                                                return ((Amount $ unAmount inA), trx)
+
+       
+        _                                    ->     throwError "problem passing args"
+
+    logInfo $ show tx
+    ledgerTx <- submitTxConstraintsWith lookups tx
+    logInfo $ show ledgerTx
+    void $ awaitTxConfirmed $ txId ledgerTx
+    
+
+                                                    
 swapExactTokensForTokens :: forall w s. Uniswap -> SwapParams2 -> Contract w s Text ()
 swapExactTokensForTokens us SwapParams2{..} = do
     (tx, lookups) <- case path of
@@ -416,6 +477,8 @@ swapExactTokensForTokens us SwapParams2{..} = do
                                                     lookups <- allLookups path2 $ Constraints.ownPubKeyHash pkh <> Constraints.typedValidatorLookups inst <> Constraints.otherScript (Scripts.validatorScript inst)
 
                                                     out <- mapAccumLM (\aux a -> toTrx a aux) amount path2
+                                                    logInfo @String $ printf "You may receive " ++ show (fst out) ++ show (last $ last path2)
+
                                                     let trx = Haskell.mconcat $ snd out
                                                     return (trx, lookups)
                                                     where
@@ -438,14 +501,14 @@ swapExactTokensForTokens us SwapParams2{..} = do
                                                         inst       = uniswapInstance us
                                                         path2      = f 2 1 path
 
-                                                        toLookup us inst [c11, c22]= do (_, (oref, o, lp, a))         <- findUniswapFactoryAndPool us c11 $ Coin $ unCoin c22
+                                                        toLookup us inst [c11, c22]= do (_, (oref, o, _, _))         <- findUniswapFactoryAndPool us c11 $ Coin $ unCoin c22
                                                                                         return $ Constraints.unspentOutputs (Map.singleton oref o)
 
                                                         toTrx [c1, c2] amnt           = do      (_, (oref, o, lp, a))         <- findUniswapFactoryAndPool us c1 $ Coin $ unCoin c2
                                                                                                 let outVal                     = txOutValue $ txOutTxOut o
                                                                                                     oldA                       = amountOf outVal c1
                                                                                                     oldB                       = amountOf outVal $ Coin $ unCoin c2
-                                                                                                    outB                       = Amount $ findSwapA oldA oldB amnt
+                                                                                                    outB                       = Amount $ getAmountOutA oldA oldB amnt
                                                                                                     (newA, newB)               = (oldA + amnt, oldB - (Amount $ unAmount outB))
                     
                                                                                                     val                           = valueOf c1 newA <> valueOf c2 (Amount $ unAmount newB) <> unitValue (poolStateCoin us)
@@ -558,8 +621,35 @@ findUniswapFactoryAndPool us coinA coinB = do
                    )
         _    -> throwError "liquidity pool not found"
 
-findSwapA :: Amount A -> Amount B -> Amount A -> Integer
-findSwapA oldA oldB inA
+
+getAmountInA :: Amount A -> Amount B -> Amount A -> Integer
+getAmountInA oldA oldB outA
+    | ub' <= 1   = 0
+    | otherwise  = go 1 ub'
+  where
+    cs :: Integer -> Bool
+    cs inB = not $ checkSwap oldA oldB (oldA - outA) (oldB + Amount inB)
+
+    ub' :: Integer
+    ub' = head $ dropWhile cs [2 ^ i | i <- [0 :: Int ..]]
+
+    go :: Integer -> Integer -> Integer
+    go lb ub
+        | ub == (lb + 1) = ub
+        | otherwise      =
+      let
+        m = div (ub + lb) 2
+      in
+        if cs m then go m ub else go lb m
+
+getAmountInB :: Amount A -> Amount B -> Amount B -> Integer
+getAmountInB oldA oldB outB = getAmountInA (switch oldB) (switch oldA) (switch outB)
+  where
+    switch = Amount . unAmount
+
+
+getAmountOutA :: Amount A -> Amount B -> Amount A -> Integer
+getAmountOutA oldA oldB inA
     | ub' <= 1   = 0
     | otherwise  = go 1 ub'
   where
@@ -578,8 +668,8 @@ findSwapA oldA oldB inA
       in
         if cs m then go m ub else go lb m
 
-findSwapB :: Amount A -> Amount B -> Amount B -> Integer
-findSwapB oldA oldB inB = findSwapA (switch oldB) (switch oldA) (switch inB)
+getAmountOutB :: Amount A -> Amount B -> Amount B -> Integer
+getAmountOutB oldA oldB inB = getAmountOutA (switch oldB) (switch oldA) (switch inB)
   where
     switch = Amount . unAmount
 
@@ -603,14 +693,15 @@ userEndpoints :: Uniswap -> Promise (Last (Either Text UserContractState)) Unisw
 userEndpoints us =
     stop
         `select`
-    (void (f (Proxy @"create") (const Created)  create                                    `select`
-           f (Proxy @"swap")   (const Swapped)  swap                                      `select`
-           f (Proxy @"swap2")  (const Swapped2) swapExactTokensForTokens                  `select`
-           f (Proxy @"close")  (const Closed)   close                                     `select`
-           f (Proxy @"remove") (const Removed)  remove                                    `select`
-           f (Proxy @"add")    (const Added)    add                                       `select`
-           f (Proxy @"pools")  Pools            (\us' () -> pools us')                    `select`
-           f (Proxy @"funds")  Funds            (\_us () -> funds))
+    (void (f (Proxy @"create")                    (const Created)  create                                    `select`
+           f (Proxy @"swap")                      (const Swapped)  swap                                      `select`
+           f (Proxy @"swapExactTokensForTokens")  (const Swapped2) swapExactTokensForTokens                  `select`
+           f (Proxy @"swapTokensForExactTokens")  (const Swapped2) swapTokensForExactTokens                  `select`
+           f (Proxy @"close")                     (const Closed)   close                                     `select`
+           f (Proxy @"remove")                    (const Removed)  remove                                    `select`
+           f (Proxy @"add")                       (const Added)    add                                       `select`
+           f (Proxy @"pools")                     Pools            (\us' () -> pools us')                    `select`
+           f (Proxy @"funds")                     Funds            (\_us () -> funds))
      <> userEndpoints us)
   where
     f :: forall l a p.

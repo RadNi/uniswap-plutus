@@ -69,8 +69,7 @@ checkSwap oldA' oldB' newA' newB' =
     traceIfFalse "expected positive oldB" (oldB > 0) &&
     traceIfFalse "expected positive-newA" (newA > 0) &&
     traceIfFalse "expected positive-newB" (newB > 0) &&
-    traceIfFalse "expected product to increase"
-        ((((newA * feeDen) - (inA * feeNum)) * ((newB * feeDen) - (inB * feeNum)))
+    traceIfFalse "expected product to increase" ((((newA * feeDen) - (inA * feeNum)) * ((newB * feeDen) - (inB * feeNum)))
          >= (feeDen * feeDen * oldA * oldB))
   where
     -- Unwrap; because we are mixing terms.

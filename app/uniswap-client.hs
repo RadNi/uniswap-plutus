@@ -47,14 +47,15 @@ main = do
     go cid cs = do
         cmd <- readCommandIO
         case cmd of
-            Funds                     -> getFunds                            cid
-            Pools                     -> getPools                            cid
-            Create amtA tnA amtB tnB  -> createPool                          cid $ toCreateParams cs amtA tnA amtB tnB
-            Add amtA tnA amtB tnB     -> addLiquidity                        cid $ toAddParams cs amtA tnA amtB tnB
-            Remove amt tnA tnB        -> removeLiquidity                     cid $ toRemoveParams cs amt tnA tnB
-            Close tnA tnB             -> closePool                           cid $ toCloseParams cs tnA tnB
-            Swap amtA tnA tnB         -> swap                                cid $ toSwapParams cs amtA tnA tnB
-            Swap2 amt tns             -> swapExactTokensWithTokens           cid $ toSwapParams2 cs amt tns 
+            Funds                                        -> getFunds                            cid
+            Pools                                        -> getPools                            cid
+            Create amtA tnA amtB tnB                     -> createPool                          cid $ toCreateParams cs amtA tnA amtB tnB
+            Add amtA tnA amtB tnB                        -> addLiquidity                        cid $ toAddParams cs amtA tnA amtB tnB
+            Remove amt tnA tnB                           -> removeLiquidity                     cid $ toRemoveParams cs amt tnA tnB
+            Close tnA tnB                                -> closePool                           cid $ toCloseParams cs tnA tnB
+            Swap amtA tnA tnB                            -> swap                                cid $ toSwapParams cs amtA tnA tnB
+            SwapExactTokensForTokens amt tns             -> swapExactTokensForTokens            cid $ toSwapParams2 cs amt tns 
+            SwapTokensForExactTokens amt tns             -> swapTokensForExactTokens            cid $ toSwapParams2 cs amt tns 
         go cid cs
 
 data Command =
@@ -65,12 +66,13 @@ data Command =
     | Remove Integer Char Char
     | Close Char Char
     | Swap Integer Char Char
-    | Swap2 Integer [Char]
+    | SwapExactTokensForTokens Integer [Char]
+    | SwapTokensForExactTokens Integer [Char]
     deriving (Show, Read, Eq, Ord)
 
 readCommandIO :: IO Command
 readCommandIO = do
-    putStrLn "Enter a command: Funds, Pools, Create amtA tnA amtB tnB, Add amtA tnA amtB tnB, Remove amt tnA tnB, Close tnA tnB, Swap amtA tnA tnB"
+    putStrLn "Enter a command: Funds, Pools, Create amtA tnA amtB tnB, Add amtA tnA amtB tnB, Remove amt tnA tnB, Close tnA tnB, Swap amtA tnA tnB, SwapExactTokensForTokens amtIn [tnA, tnB, .., tnN], SwapTokensForExactTokens amtOut [tnA, tnB, .., tnN]"
     s <- getLine
     maybe readCommandIO return $ readMaybe s
 
@@ -203,9 +205,9 @@ swap cid sp = do
             Left err'        -> putStrLn $ "error: " ++ show err'
             _                -> go
 
-swap2 :: UUID -> US.SwapParams2 -> IO ()
-swap2 cid sp = do
-    callEndpoint cid "swap2" sp
+swapExactTokensForTokens :: UUID -> US.SwapParams2 -> IO ()
+swapExactTokensForTokens cid sp = do
+    callEndpoint cid "swapExactTokensForTokens" sp
     threadDelay 2_000_000
     go
   where
@@ -214,7 +216,18 @@ swap2 cid sp = do
         case e of
             Right US.Swapped2 -> putStrLn "swapped2"
             Left err'         -> putStrLn $ "error: " ++ show err'
-            -- _                -> putStrLn $ "Third: " ++ show _
+
+swapTokensForExactTokens :: UUID -> US.SwapParams2 -> IO ()
+swapTokensForExactTokens cid sp = do
+    callEndpoint cid "swapTokensForExactTokens" sp
+    threadDelay 2_000_000
+    go
+  where
+    go = do
+        e <- getStatus cid
+        case e of
+            Right US.Swapped2 -> putStrLn "swapped2"
+            Left err'         -> putStrLn $ "error: " ++ show err'
 
 getStatus :: UUID -> IO (Either Text US.UserContractState)
 getStatus cid = runReq defaultHttpConfig $ do

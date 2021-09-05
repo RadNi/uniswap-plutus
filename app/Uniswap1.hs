@@ -58,6 +58,11 @@ initContract = do
         when (pkh /= ownPK) $ do
             tx <- submitTx $ mustPayToPubKey pkh v
             awaitTxConfirmed $ txId tx
+
+    let pkh = pubKeyHash $ walletPubKey emptyW
+    tx <- submitTx $ mustPayToPubKey pkh $ Value.singleton cs "A" amount
+    awaitTxConfirmed $ txId tx
+
     tell $ Just $ Semigroup.Last cur
   where
     amount = 1000000
@@ -65,10 +70,11 @@ initContract = do
 wallets :: [Wallet]
 wallets = [Wallet i | i <- [1 .. 4]]
 
+emptyW :: Wallet
 emptyW = Wallet 5
 
 tokenNames :: [TokenName]
-tokenNames = ["A", "B", "C", "D"]
+tokenNames = ["A", "B", "C", "D", "E"]
 
 cidFile :: Wallet -> FilePath
 cidFile w = "W" ++ show (getWallet w) ++ ".cid"
