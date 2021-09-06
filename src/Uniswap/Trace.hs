@@ -66,7 +66,7 @@ uniswapTrace = do
     Emulator.callEndpoint @"create" cid4 cpDA
     _ <- Emulator.waitNSlots 5
 
-    let swp2 = SwapParams2{amount = 10000, path = [coins Map.! "A", coins Map.! "B", coins Map.! "C", coins Map.! "D", coins Map.! "A"]}
+    let swp2 = SwapParams2{amount = 3000, path = [coins Map.! "A", coins Map.! "B", coins Map.! "C", coins Map.! "D", coins Map.! "A"]}
     Emulator.callEndpoint @"swapTokensForExactTokens" cidArb swp2
 
     -- let ap = AddParams{apCoinA = ada, apCoinB = coins Map.! "A", apAmountA = 1000, apAmountB = 5000}
